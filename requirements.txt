@@ -1,0 +1,21 @@
+# Core SignalWire SDK
+signalwire_agents>=0.1.15
+
+# Environment and configuration
+python-dotenv>=1.0.0
+
+# HTTP requests for API calls
+requests>=2.32.0
+
+# Data validation
+pydantic>=2.11.0
+
+# Logging
+structlog>=24.0.0
+
+# Development dependencies (optional)
+# Uncomment for development/testing
+# pytest>=7.0.0
+# black>=23.0.0
+# flake8>=6.0.0
+# mypy>=1.0.0 
