@@ -1,3 +1,4 @@
+# Dependencies for this demo agent
 # Core SignalWire SDK
 signalwire_agents>=0.1.15
 
