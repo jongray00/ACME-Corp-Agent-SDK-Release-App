@@ -88,6 +88,15 @@ COMPANY_PHONE=+1-555-ACME-CORP
 
 3. Configure your SignalWire phone number to point to your agent endpoint
 
+4. To expose the agent for external testing, run ngrok:
+   ```bash
+   ngrok http 3000  # "ngrok http 300" also works if ngrok is configured
+   ```
+   Copy the HTTPS forwarding URL that ngrok displays. In your SignalWire Space
+   create a new SWML script and use the forwarding URL followed by
+   `/receptionist` as the webhook. Incoming calls to your number will then hit
+   your locally running agent.
+
 ## Testing
 
 You can test the agent using the SignalWire CLI:
