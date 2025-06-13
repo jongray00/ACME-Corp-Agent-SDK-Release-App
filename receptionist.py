@@ -66,11 +66,10 @@ class ReceptionistAgent(AgentBase):
         # Define agent personality
         self.prompt_add_section("Personality", body="You are a friendly, efficient AI receptionist for Acme Corp.")
         # Define agent goal
-        self.prompt_add_section("Goal", body="Capture the caller's name, reason for calling, and call ID, then print them.")
+        self.prompt_add_section("Goal", body="Capture the caller's name and reason for calling, then print them.")
         # Define agent instructions
         self.prompt_add_section("Instructions", bullets=[
             "Politely ask for the caller's name and reason for calling",
-            "Record the call ID for every interaction",
             "Print all gathered information to the console",
             "Respond concisely and professionally"
         ])
@@ -92,21 +91,26 @@ We help customers with:
         # Function to capture caller name
         self.define_tool(
             name="capture_caller_name",
-            description="Capture caller's name, reason for calling, and call ID.",
+            description="Capture caller's name and reason for calling.",
             parameters={
                 "caller_name": {"type": "string", "description": "The caller's name"},
-                "reason": {"type": "string", "description": "Reason for calling"},
-                "call_id": {"type": "string", "description": "Unique call identifier"}
+                "reason": {"type": "string", "description": "Reason for calling"}
             },
             handler=self._handle_capture_caller_name
         )
     
+    def _print_caller_info(self, caller_name: str, reason: str) -> None:
+        """Print caller details in a simple format."""
+        print(f"Caller: {caller_name}, Reason: {reason}")
+
     def _handle_capture_caller_name(self, args, raw=None):
         caller_name = args.get("caller_name", "")
         reason = args.get("reason", "")
-        call_id = args.get("call_id", "")
-        print(f"[CALL] Name: {caller_name} | Reason: {reason} | CallID: {call_id}")
-        return SwaigFunctionResult(f"Thank you {caller_name}, we have noted your reason: '{reason}'.")
+        logger.info("caller_captured", caller=caller_name, reason=reason)
+        self._print_caller_info(caller_name, reason)
+        return SwaigFunctionResult(
+            f"Thank you {caller_name}, we have noted your reason: '{reason}'."
+        )
 
 # Create the agent instance
 agent = ReceptionistAgent()
