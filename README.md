@@ -1,6 +1,6 @@
 # Acme Corp IVR - Version 1: Basic AI Agent
 
-This is the first version of the Acme Corp IVR system, implementing a simple AI receptionist agent using the SignalWire SDK.
+This is the first version of the Acme Corp IVR system, implementing a simple AI receptionist agent using the SignalWire SDK. The example leverages the **Agents SDK** to demonstrate how easily a voice bot can be created.
 
 ## Overview
 
@@ -33,7 +33,7 @@ v1_ai_agent_sdk/
 ## Prerequisites
 
 - Python 3.8 or higher
-- SignalWire accountc (SignalWire Space URL and authentication tokens)
+- SignalWire account (SignalWire Space URL and authentication tokens)
 
 ## Installation
 
@@ -138,9 +138,16 @@ In Version 2, we'll extend this to:
 - **Port Conflicts**: Change `AGENT_PORT` if 3000 is already in use
 - **Import Errors**: Ensure all dependencies are installed via `pip install -r requirements.txt`
 
+## Documentation
+
+For a full walkthrough of available features, consult the official
+[SignalWire Agents SDK documentation](https://deploy-preview-315--signalwire-docs.netlify.app/agents-sdk).
+The docs cover advanced topics like Prompt Object Model (POM), SWAIG testing
+tools and deployment guides.
+
 ## Support
 
 For questions about SignalWire AI Agents:
 - [SignalWire AI Documentation](https://developer.signalwire.com/ai)
 - [SignalWire Community Forum](https://signalwire.community)
-- [SignalWire Discord](https://discord.gg/signalwire) 
+- [SignalWire Discord](https://discord.gg/signalwire)

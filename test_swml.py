@@ -1,25 +1,33 @@
 #!/usr/bin/env python3
-"""
-Test SWML generation for the receptionist agent
+"""Utility script to inspect the generated SWML.
+
+SWML (SignalWire Markup Language) is the intermediate JSON document
+describing the agent.  This script mirrors the validation steps shown
+in the Agents SDK documentation.
 """
 
 import json
 import sys
 import os
 
-# Add current directory to path
+# Add current directory to path so "receptionist" can be imported when
+# running this script directly
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from receptionist import agent
 
 def test_swml_generation():
-    """Test SWML generation and check for issues"""
+    """Test SWML generation and check for issues.
+
+    Useful when iterating on an agent to ensure that the generated
+    markup contains the expected SWAIG functions.
+    """
     
     print("Testing SWML generation for Receptionist Agent v1...")
     print("-" * 60)
     
     try:
-        # Get the SWML document
+        # Get the SWML document produced by the agent
         swml_json = agent._render_swml()
         swml_data = json.loads(swml_json)
         
@@ -28,11 +36,11 @@ def test_swml_generation():
         print(json.dumps(swml_data, indent=2))
         print("-" * 60)
         
-        # Check for AI section
+        # Check for AI section which holds the SWAIG function definitions
         if "sections" in swml_data and "main" in swml_data["sections"]:
             main_section = swml_data["sections"]["main"]
             
-            # Find AI section
+            # Find AI section within the main section list
             ai_section = None
             for section in main_section:
                 if "ai" in section:
@@ -44,6 +52,7 @@ def test_swml_generation():
                 
                 print(f"Found {len(functions)} functions:")
                 for func in functions:
+                    # Display each SWAIG function name
                     print(f"\n  Function: {func.get('function', 'unknown')}")
                     
                     # Check parameter structure
@@ -52,7 +61,7 @@ def test_swml_generation():
                         print(f"    Parameters structure: {json.dumps(params, indent=6)}")
                         
                         # Check for double-nesting issue
-                        if ("properties" in params and 
+                        if ("properties" in params and
                             isinstance(params["properties"], dict) and
                             "properties" in params["properties"]):
                             print("    ⚠️  WARNING: Double-nested properties detected!")
