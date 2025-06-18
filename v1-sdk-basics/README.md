@@ -73,7 +73,7 @@ AGENT_ROUTE=/receptionist
 
 # Company Configuration
 COMPANY_NAME=Acme Corp
-COMPANY_SPECIALTY=Widgets for Roadrunners
+COMPANY_SPECIALTY=Professional Phone Repair Services
 COMPANY_PHONE=+1-555-ACME-CORP
 ```
 
