@@ -44,6 +44,9 @@ logger = get_logger(__name__)
 # Debug mode is always enabled for comprehensive monitoring
 DEBUG_MODE = True
 
+# Shared in-memory store for call context, keyed by call_id
+SHARED_CALL_CONTEXT = {}
+
 
 class ACMEReceptionistAgent(AgentBase):
     """
@@ -162,7 +165,7 @@ We are the premier provider of professional phone repair services designed to ge
         # Available context information
         self.prompt_add_section(
             "Context Available",
-            body="You can access caller information using: ${global_data.caller_name}, ${global_data.inquiry_type}, ${global_data.details}"
+            body="You can access caller information after it's collected and will pass it to specialists during transfers"
         )
         
     def _setup_functions(self):
@@ -189,41 +192,32 @@ We are the premier provider of professional phone repair services designed to ge
             caller_name = args.get("caller_name", "")
             inquiry_type = args.get("inquiry_type", "")
             details = args.get("details", "")
-        
-            # Enhanced logging for debugging (same as v1 but with more detail)
-            agent_instance.log.info("caller_captured", 
-                         caller=caller_name, 
-                         inquiry=inquiry_type, 
-                         details=details,
-                         timestamp=datetime.now().isoformat())
             
-            # Enhanced debug output (always enabled)
-            agent_instance.debug_print("Caller Info Captured", 
-                           name=caller_name,
-                           inquiry_type=inquiry_type,
-                           details=details)
-            
-            # Store in global_data for specialist access (v2 enhancement)
-            global_data_update = {
+            # Try several ways to extract call_id
+            call_id = None
+            if raw_data:
+                call_id = raw_data.get("call", {}).get("call_id") or raw_data.get("call_id")
+                # Sometimes SWAIG puts it inside meta_data
+                if not call_id and "meta_data" in raw_data:
+                    call_id = raw_data["meta_data"].get("call_id")
+
+            # Debug raw_data structure for troubleshooting
+            agent_instance.debug_print("save_caller_info raw_data", keys=list(raw_data.keys()) if raw_data else None, call_id_extracted=call_id)
+
+            # Store context in the shared dictionary (or fallback key)
+            storage_key = call_id or "__last__"
+            SHARED_CALL_CONTEXT[storage_key] = {
                 "caller_name": caller_name,
                 "inquiry_type": inquiry_type,
                 "details": details,
-                "reception_completed": True,
-                "agent_path": ["receptionist"],
-                "timestamp": datetime.now().isoformat(),
-                "company_context": {
-                    "name": agent_instance.company_name,
-                    "specialty": agent_instance.company_specialty
-                }
+                "timestamp": datetime.now().isoformat()
             }
-            
-            result = (
-                SwaigFunctionResult(f"Thank you {caller_name}! I've noted your {inquiry_type} inquiry. Let me connect you with the right specialist.")
-                .update_global_data(global_data_update)
-            )
+            agent_instance.debug_print("Context saved", storage_key=storage_key, context=SHARED_CALL_CONTEXT[storage_key])
+
+            # The SwaigFunctionResult no longer needs to update global_data
+            result = SwaigFunctionResult(f"Thank you {caller_name}! I've noted your {inquiry_type} inquiry. Let me connect you with the right specialist.")
             
             # Debug global data update (always enabled)
-            agent_instance.debug_print("Global Data Updated", **global_data_update)
             log_function_exit("ACMEReceptionistAgent", "save_caller_info", result)
             
             return result
@@ -488,8 +482,8 @@ class ACMESalesAgent(AgentBase):
             basic_auth=("", "")
         )
         
-        # Set a distinct voice for sales
-        self.add_language("English", "en-US", "josh")
+        # Set a distinct voice for sales and disable audible function fillers
+        self.add_language(name="English", code="en-US", voice="josh", function_fillers=[])
         
         # Set debug parameters after initialization (always enabled)
         debug_params = get_debug_params()
@@ -512,6 +506,7 @@ class ACMESalesAgent(AgentBase):
         })
         
         self._setup_personality()
+        self._setup_functions()
         
         # Set post-prompt for sales conversation analysis
         self.set_post_prompt("""
@@ -547,133 +542,148 @@ class ACMESalesAgent(AgentBase):
             "Instructions",
             bullets=[
                 "Welcome the caller warmly and acknowledge you have their information from reception",
-                "Reference their specific issue (available in global_data.details) in your greeting",
-                "Use caller context from global_data (${global_data.caller_name}, ${global_data.details})",
+                "Reference their specific issue in your greeting", 
                 "Ask detailed questions about their device and repair needs",
                 "Search the product knowledge base for current pricing and service information",
                 "Provide personalized repair recommendations with accurate pricing",
                 "Help them understand repair options, timelines, and warranty coverage"
             ]
         )
-        
+
         self.prompt_add_section(
             "Initial Greeting",
-            body="Start your conversation by saying: 'Hello ${global_data.caller_name}, I'm your ACME Corp sales specialist. I understand you're having an issue with ${global_data.details}. I'll help you understand your repair options and costs.'"
+            body="Start your conversation by greeting the caller warmly. Acknowledge that you have their information from the receptionist and ask how you can help them with their sales inquiry. Use the caller's name and inquiry details from the context if available."
         )
-        
+
         self.prompt_add_section(
             "Context Available",
-            body="Caller information: ${global_data.caller_name}, ${global_data.inquiry_type}, ${global_data.details}, ${global_data.agent_path}"
+            body="You have access to the caller's name, inquiry type, and other details provided to the receptionist. This information is available in the global_data object."
         )
     
+    def _setup_functions(self):
+        """Set up SWAIG functions for enhanced receptionist capabilities"""
+        
+        # Store reference to self for use in tool functions
+        agent_instance = self
+        
+        @self.tool(
+            name="create_repair_recommendation",
+            description="Create personalized phone repair recommendations for customer needs",
+            parameters={
+                "device_info": {"type": "string", "description": "Customer's device make, model, and condition"},
+                "repair_needs": {"type": "string", "description": "Specific repair requirements or issues"},
+                "budget": {"type": "string", "description": "Budget range if mentioned"}
+            }
+        )
+        def create_repair_recommendation(args, raw_data):
+            """Generate personalized repair service recommendations"""
+            device_info = args.get("device_info", "")
+            repair_needs = args.get("repair_needs", "")
+            budget = args.get("budget", "")
+            
+            # Get caller context
+            global_data = self.get_global_data()
+            caller_name = global_data.get("caller_name", "")
+            
+            # Store recommendation details
+            recommendation_data = {
+                "device_info": device_info,
+                "repair_needs": repair_needs,
+                "budget": budget,
+                "recommendation_created": datetime.now().isoformat()
+            }
+            
+            response = f"Based on your {device_info} device condition, here are my ACME repair service recommendations:\n\n"
+            response += "[Specific repair services and pricing would be provided here based on current service catalog]\n\n"
+            response += f"These services address the repair needs you mentioned: {repair_needs}"
+            
+            if budget:
+                response += f"\n\nThis recommendation fits within your {budget} budget range."
+            
+            return (
+                SwaigFunctionResult(response)
+                .update_global_data({"last_recommendation": recommendation_data})
+            )
+        
+        @self.tool(
+            name="check_repair_feasibility",
+            description="Check repair feasibility and cost-effectiveness for customer's device",
+            parameters={
+                "device_model": {"type": "string", "description": "Device model and age to check"},
+                "damage_details": {"type": "string", "description": "Specific damage or issues described"}
+            }
+        )
+        def check_repair_feasibility(args, raw_data):
+            """Verify repair feasibility for customer's device"""
+            device_model = args.get("device_model", "")
+            damage_details = args.get("damage_details", "")
+            
+            feasibility_data = {
+                "device_checked": device_model,
+                "damage_assessed": damage_details,
+                "check_time": datetime.now().isoformat()
+            }
+            
+            response = f"Repair feasibility analysis for device: {device_model}\n\n"
+            response += f"For the issues described: {damage_details}\n\n"
+            response += "[Detailed feasibility analysis would include:]"
+            response += "\n• Parts availability and cost"
+            response += "\n• Repair complexity and time requirements"  
+            response += "\n• Cost-effectiveness vs device replacement"
+            response += "\n• Warranty coverage and service guarantees"
+            
+            return (
+                SwaigFunctionResult(response)
+                .update_global_data({"last_feasibility_check": feasibility_data})
+            )
+
     def configure_sales_agent(self, query_params, body_params, headers, agent):
-        """Configure sales agent with caller context"""
-        self.debug_print("Configuring sales agent", 
-                       query_params=query_params,
-                       body_params=body_params)
+        """Configure sales agent with caller context from shared memory"""
+        call_id = body_params.get("call", {}).get("call_id")
+        context = SHARED_CALL_CONTEXT.get(call_id) if call_id else None
+        if not context:
+            context = SHARED_CALL_CONTEXT.get("__last__", {})
         
-        current_data = self.get_global_data() or {}
-        self.debug_print("Sales agent initial global data", 
-                       data_keys=list(current_data.keys()) if current_data else None,
-                       has_caller_info="caller_name" in current_data)
+        caller_name = context.get("caller_name", "")
+        details = context.get("details", "")
         
-        current_data.update({
-            "agent_type": "sales",
-            "specialist_start": datetime.now().isoformat()
-        })
+        # Build the greeting dynamically
+        if caller_name:
+            if details and details.lower() == "pricing":
+                greeting = f"Hello {caller_name}, I'm your ACME Corp sales specialist. I understand you're looking for pricing information. I'll help you understand our repair options and costs."
+            elif details:
+                greeting = f"Hello {caller_name}, I'm your ACME Corp sales specialist. I understand you're interested in {details}. I'll help you understand your repair options and costs."
+            else:
+                greeting = f"Hello {caller_name}, I'm your ACME Corp sales specialist. I'm here to help you understand your phone repair options and costs."
+        else:
+            greeting = "Hello, I'm your ACME Corp sales specialist. I see you were transferred from our receptionist. How can I help you with your phone repair needs today?"
+
+        # Build prompt sections dynamically
+        agent.prompt_add_section("Personality", body="You are a knowledgeable and helpful sales specialist for ACME Corp, expert in phone repair services and device diagnostics. You have a friendly, professional voice that helps put customers at ease.")
+        agent.prompt_add_section("Goal", body="Help customers understand their phone repair options, provide accurate pricing information, and guide them through the repair service process.")
+        agent.prompt_add_section("Instructions", bullets=[
+            "Welcome the caller warmly and acknowledge you have their information from reception",
+            "Reference their specific issue in your greeting",
+            "Ask detailed questions about their device and repair needs",
+            "Search the product knowledge base for current pricing and service information",
+            "Provide personalized repair recommendations with accurate pricing",
+            "Help them understand repair options, timelines, and warranty coverage"
+        ])
+        agent.prompt_add_section("Initial Greeting", body=f"Start your conversation by saying: '{greeting}'")
+        agent.prompt_add_section("Context Available", body=f"Caller information: Name is '{caller_name or 'Unknown'}', inquiry is about '{details or 'general inquiry'}'.")
         
-        # Update agent path
-        agent_path = current_data.get("agent_path", [])
-        if "sales" not in agent_path:
-            agent_path.append("sales")
-            current_data["agent_path"] = agent_path
-        
-        self.set_global_data(current_data)
-        
-        # Verify configuration
-        verification_data = self.get_global_data()
-        self.debug_print("Sales agent configuration complete", 
-                       final_data_keys=list(verification_data.keys()) if verification_data else None,
-                       agent_path=verification_data.get("agent_path"),
-                       caller_name=verification_data.get("caller_name"))
-    
+        self.debug_print("Sales agent configured", 
+                       call_id=call_id,
+                       caller_name=caller_name,
+                       details=details,
+                       greeting_set=True)
+
     def debug_print(self, message: str, **kwargs):
         """Enhanced debug output for Sales Agent (always enabled)"""
         debug_msg = format_debug_message(self.__class__.__name__, message, **kwargs)
         print(debug_msg)
         # Also log to structured logger
         self.log.debug(message.replace(" ", "_").lower(), **kwargs)
-    
-    @AgentBase.tool(
-        name="create_repair_recommendation",
-        description="Create personalized phone repair recommendations for customer needs",
-        parameters={
-            "device_info": {"type": "string", "description": "Customer's device make, model, and condition"},
-            "repair_needs": {"type": "string", "description": "Specific repair requirements or issues"},
-            "budget": {"type": "string", "description": "Budget range if mentioned"}
-        }
-    )
-    def create_repair_recommendation(self, args, raw_data):
-        """Generate personalized repair service recommendations"""
-        device_info = args.get("device_info", "")
-        repair_needs = args.get("repair_needs", "")
-        budget = args.get("budget", "")
-        
-        # Get caller context
-        global_data = self.get_global_data()
-        caller_name = global_data.get("caller_name", "")
-        
-        # Store recommendation details
-        recommendation_data = {
-            "device_info": device_info,
-            "repair_needs": repair_needs,
-            "budget": budget,
-            "recommendation_created": datetime.now().isoformat()
-        }
-        
-        response = f"Based on your {device_info} device condition, here are my ACME repair service recommendations:\n\n"
-        response += "[Specific repair services and pricing would be provided here based on current service catalog]\n\n"
-        response += f"These services address the repair needs you mentioned: {repair_needs}"
-        
-        if budget:
-            response += f"\n\nThis recommendation fits within your {budget} budget range."
-        
-        return (
-            SwaigFunctionResult(response)
-            .update_global_data({"last_recommendation": recommendation_data})
-        )
-    
-    @AgentBase.tool(
-        name="check_repair_feasibility",
-        description="Check repair feasibility and cost-effectiveness for customer's device",
-        parameters={
-            "device_model": {"type": "string", "description": "Device model and age to check"},
-            "damage_details": {"type": "string", "description": "Specific damage or issues described"}
-        }
-    )
-    def check_repair_feasibility(self, args, raw_data):
-        """Verify repair feasibility for customer's device"""
-        device_model = args.get("device_model", "")
-        damage_details = args.get("damage_details", "")
-        
-        feasibility_data = {
-            "device_checked": device_model,
-            "damage_assessed": damage_details,
-            "check_time": datetime.now().isoformat()
-        }
-        
-        response = f"Repair feasibility analysis for device: {device_model}\n\n"
-        response += f"For the issues described: {damage_details}\n\n"
-        response += "[Detailed feasibility analysis would include:]"
-        response += "\n• Parts availability and cost"
-        response += "\n• Repair complexity and time requirements"  
-        response += "\n• Cost-effectiveness vs device replacement"
-        response += "\n• Warranty coverage and service guarantees"
-        
-        return (
-            SwaigFunctionResult(response)
-            .update_global_data({"last_feasibility_check": feasibility_data})
-        )
 
 
 class ACMESupportAgent(AgentBase):
@@ -695,14 +705,8 @@ class ACMESupportAgent(AgentBase):
             basic_auth=("", "")
         )
         
-        # Set a distinct voice for support with proper configuration
-        self.add_language({
-            "name": "English",
-            "code": "en-US",
-            "voice": "sally",
-            "rate": 1.0,
-            "pitch": 1.0
-        })
+        # Set a distinct voice for support and disable audible function fillers
+        self.add_language(name="English", code="en-US", voice="en-US-Neural2-F", function_fillers=[])
         
         # Set debug parameters after initialization (always enabled)
         debug_params = get_debug_params()
@@ -760,56 +764,63 @@ class ACMESupportAgent(AgentBase):
             "Instructions",
             bullets=[
                 "Welcome the caller warmly and acknowledge you have their information from reception",
-                "Reference their specific issue (available in global_data.details) in your greeting",
-                "Use caller context from global_data (${global_data.caller_name}, ${global_data.details})",
+                "Reference their specific issue in your greeting",
                 "Ask detailed questions about their device issues and symptoms",
                 "Search the support knowledge base for diagnostic procedures",
                 "Provide step-by-step troubleshooting and repair guidance",
                 "Create support tickets for complex repairs requiring escalation"
             ]
         )
-        
+
         self.prompt_add_section(
             "Initial Greeting",
-            body="Start your conversation by saying: 'Hello ${global_data.caller_name}, I'm your ACME Corp technical support specialist. I understand you're experiencing an issue with ${global_data.details}. I'm here to help diagnose and resolve this problem.'"
+            body="Start your conversation by greeting the caller warmly. Acknowledge that you have their information from the receptionist and ask how you can help them with their support issue. Use the caller's name and issue details from the context if available."
         )
-        
+
         self.prompt_add_section(
             "Context Available",
-            body="Caller information: ${global_data.caller_name}, ${global_data.inquiry_type}, ${global_data.details}, ${global_data.agent_path}"
+            body="You have access to the caller's name, inquiry type, and other details provided to the receptionist. This information is available in the global_data object."
         )
     
     def configure_support_agent(self, query_params, body_params, headers, agent):
-        """Configure support agent with caller context"""
-        self.debug_print("Configuring support agent", 
-                       query_params=query_params,
-                       body_params=body_params)
+        """Configure support agent with caller context from shared memory"""
+        call_id = body_params.get("call", {}).get("call_id")
+        context = SHARED_CALL_CONTEXT.get(call_id) if call_id else None
+        if not context:
+            context = SHARED_CALL_CONTEXT.get("__last__", {})
         
-        current_data = self.get_global_data() or {}
-        self.debug_print("Support agent initial global data", 
-                       data_keys=list(current_data.keys()) if current_data else None,
-                       has_caller_info="caller_name" in current_data)
+        caller_name = context.get("caller_name", "")
+        details = context.get("details", "")
         
-        current_data.update({
-            "agent_type": "support",
-            "specialist_start": datetime.now().isoformat()
-        })
+        # Build the greeting dynamically
+        if caller_name:
+            if details and details not in ["", "support", "technical"]:
+                greeting = f"Hello {caller_name}, I'm your ACME Corp technical support specialist. I understand you're experiencing an issue with {details}. I'm here to help diagnose and resolve this problem."
+            else:
+                greeting = f"Hello {caller_name}, I'm your ACME Corp technical support specialist. I'm here to help you with any technical issues you're experiencing with your phone."
+        else:
+            greeting = "Hello, I'm your ACME Corp technical support specialist. I see you were transferred from our receptionist. What technical issue can I help you with today?"
+
+        # Build prompt sections dynamically
+        agent.prompt_add_section("Personality", body="You are a patient, knowledgeable technical support specialist for ACME Corp, expert in phone diagnostics and repair guidance. You have a calm, reassuring voice that helps customers feel confident their issues will be resolved.")
+        agent.prompt_add_section("Goal", body="Diagnose and resolve technical issues with customer devices, provide repair status updates, and create support tickets when needed.")
+        agent.prompt_add_section("Instructions", bullets=[
+            "Welcome the caller warmly and acknowledge you have their information from reception",
+            "Reference their specific issue in your greeting",
+            "Ask detailed questions about their device issues and symptoms",
+            "Search the support knowledge base for diagnostic procedures",
+            "Provide step-by-step troubleshooting and repair guidance",
+            "Create support tickets for complex repairs requiring escalation"
+        ])
+        agent.prompt_add_section("Initial Greeting", body=f"Start your conversation by saying: '{greeting}'")
+        agent.prompt_add_section("Context Available", body=f"Caller information: Name is '{caller_name or 'Unknown'}', issue is '{details or 'general technical issue'}'.")
         
-        # Update agent path
-        agent_path = current_data.get("agent_path", [])
-        if "support" not in agent_path:
-            agent_path.append("support")
-            current_data["agent_path"] = agent_path
-        
-        self.set_global_data(current_data)
-        
-        # Verify configuration
-        verification_data = self.get_global_data()
-        self.debug_print("Support agent configuration complete", 
-                       final_data_keys=list(verification_data.keys()) if verification_data else None,
-                       agent_path=verification_data.get("agent_path"),
-                       caller_name=verification_data.get("caller_name"))
-    
+        self.debug_print("Support agent configured", 
+                       call_id=call_id,
+                       caller_name=caller_name,
+                       details=details,
+                       greeting_set=True)
+
     def debug_print(self, message: str, **kwargs):
         """Enhanced debug output for Support Agent (always enabled)"""
         debug_msg = format_debug_message(self.__class__.__name__, message, **kwargs)
@@ -868,41 +879,33 @@ class ACMESupportAgent(AgentBase):
         }
     )
     def create_support_ticket(self, args, raw_data):
-        """Create and track support tickets"""
-        issue_summary = args.get("issue_summary", "")
-        priority = args.get("priority", "medium").lower()
-        
-        # Get caller context
-        global_data = self.get_global_data()
-        caller_name = global_data.get("caller_name", "Unknown")
-        
-        # Generate ticket ID
-        ticket_id = f"ACME-SUP-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        
-        # Store ticket information
-        ticket_data = {
-            "ticket_id": ticket_id,
-            "caller_name": caller_name,
-            "issue_summary": issue_summary,
-            "priority": priority,
-            "created": datetime.now().isoformat(),
-            "status": "open"
-        }
-        
-        response = f"I've created support ticket {ticket_id} for you.\n\n"
-        response += f"Issue: {issue_summary}\n"
-        response += f"Priority: {priority.title()}\n"
-        response += f"Customer: {caller_name}\n\n"
-        
-        if priority in ["high", "urgent"]:
-            response += "Due to the high priority, our technical team will contact you within 2 hours."
-        else:
-            response += "Our technical team will follow up within 24 hours."
-        
-        return (
-            SwaigFunctionResult(response)
-            .update_global_data({"support_ticket": ticket_data})
+        """Dummy support-ticket creator that just logs the request.
+
+        This stub replaces the original implementation so we avoid runtime
+        errors (e.g. missing get_global_data) and prevent the agent from
+        speaking the function name aloud.  No ticketing system is contacted –
+        we merely acknowledge the caller.
+        """
+
+        # Extract information from arguments – safe defaults so nothing blows up
+        issue_summary: str = args.get("issue_summary", "(no summary provided)")
+        priority: str = args.get("priority", "medium").lower()
+
+        # Log to console for operators/devs
+        print("[DUMMY] create_support_ticket invoked",
+              {
+                  "issue_summary": issue_summary,
+                  "priority": priority,
+              })
+
+        # Provide a polite acknowledgement back to the caller – no ticket-ID
+        # or additional instructions (keeps things simple and generic)
+        response = (
+            "Thank you – I've noted the details of your issue and marked it as "
+            f"{priority}. Our team will be in touch shortly to assist you."
         )
+
+        return SwaigFunctionResult(response)
 
 
 def create_acme_service(host: str = "0.0.0.0", port: int = 3001, log_level: str = "info") -> AgentServer:
