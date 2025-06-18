@@ -41,7 +41,7 @@ class ReceptionistAgent(AgentBase):
         
         # Company configuration used to personalize the prompt.
         self.company_name = os.getenv("COMPANY_NAME", "Acme Corp")
-        self.company_specialty = os.getenv("COMPANY_SPECIALTY", "Widgets for Roadrunners")
+        self.company_specialty = os.getenv("COMPANY_SPECIALTY", "Professional Phone Repair Services")
         self.company_phone = os.getenv("COMPANY_PHONE", "+1-555-ACME-CORP")
         
         # Initialize parent class.  `use_pom=True` enables the Prompt
@@ -113,9 +113,12 @@ Specialty: {self.company_specialty}
 Phone: {self.company_phone}
 
 We help customers with:
-- Technical support for existing products
-- Information about new products and pricing
-- General inquiries about our widgets"""
+- Phone screen repair and replacement
+- Battery replacement and power issues
+- Water damage restoration
+- Software troubleshooting and updates
+- Hardware diagnostics and repair
+- Data recovery services"""
         )
     
     def _setup_functions(self):
