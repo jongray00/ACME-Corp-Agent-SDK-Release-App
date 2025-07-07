@@ -61,11 +61,6 @@ v1_ai_agent_sdk/
 Edit the `.env` file with your SignalWire credentials:
 
 ```env
-# SignalWire Configuration
-SIGNALWIRE_SPACE_URL=your-space.signalwire.com
-SIGNALWIRE_PROJECT_KEY=your-project-key
-SIGNALWIRE_TOKEN=your-auth-token
-
 # Agent Configuration
 AGENT_HOST=0.0.0.0
 AGENT_PORT=3000
